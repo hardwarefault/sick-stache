@@ -137,6 +137,7 @@ public abstract class LoadingListFragment<Params, Progress, Result> extends Sick
 	
 	public void setListStatus( ListStatus status )
 	{
+		if(spinner == null) return;
 		switch ( status ) {
 		case NORMAL:
 			spinner.setVisibility(ProgressBar.VISIBLE);
