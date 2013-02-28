@@ -19,21 +19,6 @@
  */
 package org.sickbeard;
 
-import android.os.AsyncTask;
-import android.util.Log;
-import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
-import org.sickbeard.Episode.StatusEnum;
-import org.sickbeard.FutureEpisode.TimeEnum;
-import org.sickbeard.Show.QualityEnum;
-import org.sickbeard.json.*;
-import org.sickbeard.json.ShowJson.CacheStatusJson;
-import org.sickbeard.json.deserializer.JsonBooleanDeserializer;
-import org.sickbeard.json.type.JsonBoolean;
-import org.sickbeard.net.SickAuthenticator;
-import org.sickbeard.net.ssl.DefaultTrustManager;
-
-import javax.net.ssl.*;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.Type;
@@ -42,7 +27,52 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.SecureRandom;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.KeyManager;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+
+import org.apache.http.conn.ssl.AllowAllHostnameVerifier;
+import org.apache.http.conn.ssl.StrictHostnameVerifier;
+import org.sickbeard.Episode.StatusEnum;
+import org.sickbeard.FutureEpisode.TimeEnum;
+import org.sickbeard.Show.QualityEnum;
+import org.sickbeard.json.CommandsJson;
+import org.sickbeard.json.EpisodeJson;
+import org.sickbeard.json.GetQualityJson;
+import org.sickbeard.json.HistoryJson;
+import org.sickbeard.json.JsonResponse;
+import org.sickbeard.json.MessageJson;
+import org.sickbeard.json.OptionsJson;
+import org.sickbeard.json.PingJson;
+import org.sickbeard.json.RootDirJson;
+import org.sickbeard.json.SeasonsJson;
+import org.sickbeard.json.SeasonsListJson;
+import org.sickbeard.json.ShowJson;
+import org.sickbeard.json.ShowJson.CacheStatusJson;
+import org.sickbeard.json.ShowWithFullSeasonListing;
+import org.sickbeard.json.TvDbResultJson;
+import org.sickbeard.json.TvDbResultsJson;
+import org.sickbeard.json.deserializer.JsonBooleanDeserializer;
+import org.sickbeard.json.type.JsonBoolean;
+import org.sickbeard.net.SickAuthenticator;
+import org.sickbeard.net.ssl.DefaultTrustManager;
+
+import android.os.AsyncTask;
+import android.util.Log;
+
+import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
 
 public class SickBeard {
 	
@@ -62,15 +92,7 @@ public class SickBeard {
 	
 	private int apiVersion = 3;
 	
-	public SickBeard( String hostname, String port, String api, boolean https ) {
-		this(hostname,port,api,https,"","","");
-	}
-	
-	public SickBeard( String hostname, String port, String api, boolean https, String extraPath ) {
-		this(hostname,port,api,https,extraPath,"","");
-	}
-	
-	public SickBeard( String hostname, String port, String api, boolean https, String extraPath, String user, String password )
+	public SickBeard( String hostname, String port, String api, boolean https, String extraPath, String user, String password, boolean trustAll, String trustMe )
 	{
 		this.hostname = hostname;
 		this.port = port;
@@ -78,20 +100,19 @@ public class SickBeard {
 		this.path = this.extraPath + "/api/" + api + "/";
 		try {
 			this.https = https;
-			this.scheme = "http";
-			Authenticator.setDefault(new SickAuthenticator(user,password));
-			if ( https ) {
-				SSLContext ctx = SSLContext.getInstance("TLS");
-		        ctx.init(new KeyManager[0], new TrustManager[] {new DefaultTrustManager()}, new SecureRandom());
-		        HttpsURLConnection.setDefaultSSLSocketFactory(ctx.getSocketFactory());
-		        HttpsURLConnection.setDefaultHostnameVerifier(new HostnameVerifier(){
-					@Override
-					public boolean verify(String arg0, SSLSession arg1) {
-						return true;
-					}
-				});
-		        scheme = "https";
+			this.scheme = https ? "https" : "http";
+			
+			Authenticator.setDefault(new SickAuthenticator(user,password, hostname));
+			HostnameVerifier verifier;
+			SSLContext ctx = SSLContext.getInstance("TLS");
+			ctx.init(new KeyManager[0], new TrustManager[] {new DefaultTrustManager(trustAll, trustMe)}, new SecureRandom());
+			if( trustAll ) {
+				verifier = new AllowAllHostnameVerifier();
+			} else {
+				verifier = new StrictHostnameVerifier();
 			}
+			HttpsURLConnection.setDefaultSSLSocketFactory(ctx.getSocketFactory());
+			HttpsURLConnection.setDefaultHostnameVerifier(verifier);
 		} catch (Exception e){
 			;
 		}
@@ -128,22 +149,6 @@ public class SickBeard {
 		/***********************************************************
 		 * ANDROID SPECIFIC END                                    *
 		 ***********************************************************/
-	}
-	
-	public SickBeard( SickBeard sick )
-	{
-		this( sick.scheme, sick.hostname, sick.port, sick.path, sick.extraPath, sick.user, sick.password );
-	}
-	
-	private SickBeard( String scheme, String hostname, String port, String extraPath, String path, String user, String password ) {
-		this.scheme = scheme;
-		this.https = scheme.toLowerCase().compareTo("https") == 0 ? true : false;
-		this.hostname = hostname;
-		this.port = port;
-		this.extraPath = extraPath;
-		this.path = path;
-		this.user = user;
-		this.password = password;
 	}
 	
 	public int getApiVersion()
@@ -727,12 +732,8 @@ public class SickBeard {
 	{
 		URI uri = this.getServerUri(command);
 //		URI uri = new URI( serverUri.toString() + URLEncoder.encode(command) );
-		HttpURLConnection server = null;
-		if ( https ) {
-			server = (HttpsURLConnection)uri.toURL().openConnection();
-		} else {
-			server = (HttpURLConnection)uri.toURL().openConnection();
-		}
+		HttpURLConnection server = (HttpURLConnection) uri.toURL().openConnection();
+		
 		server.setConnectTimeout(30000);
 		BufferedReader reader = new BufferedReader( new InputStreamReader(server.getInputStream() ) );
 		// TypeToken cannot figure out T so instead it must be supplied

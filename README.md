@@ -20,3 +20,6 @@ Features:
 * Mass Episode Edit via Context Action Bar
 * HTTPS Support
 
+## Contributors
+
+Hardwarefault - SSL Verification

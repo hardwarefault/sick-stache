@@ -92,6 +92,16 @@ public class Preferences implements OnSharedPreferenceChangeListener {
 		return pref.getBoolean("https", false);
 	}
 	
+	public boolean getTrustAll()
+	{
+		return pref.getBoolean("trustAll", true);
+	}
+	
+	public String getTrustMe()
+	{
+	    return pref.getString("trustMe", "");
+	}
+	
 	public String getPath()
 	{
 		return pref.getString("path","");
@@ -136,7 +146,7 @@ public class Preferences implements OnSharedPreferenceChangeListener {
 	
 	private void updateSickBeard()
 	{
-		sick = new SickBeard( getHost(), getPort(), getAPI(), getHTTPS(), getPath(), getUsername(), getPassword() );
+		sick = new SickBeard( getHost(), getPort(), getAPI(), getHTTPS(), getPath(), getUsername(), getPassword(), getTrustAll(), getTrustMe() );
 	}
 
 	public void registerSharedPreferencesChangedListener( OnSharedPreferenceChangeListener listener )
